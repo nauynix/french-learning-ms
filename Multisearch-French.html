@@ -12,6 +12,17 @@
             font-size: 1.4em;
             padding: 0.4em;
         }
+        .popup-blocked {
+            margin-top: 1em;
+            padding: 1em;
+            background: var(--c2);
+            border-radius: var(--rc);
+            display: none;
+        }
+        .popup-blocked a {
+            display: block;
+            margin: 0.4em 0;
+        }
     </style>
     <title>Multisearch French for Language Learning</title>
 </head>
@@ -27,6 +38,10 @@
         </ul>
         </article>
         <input type="text" class="search-input" id="searchInputId" autofocus placeholder="Multisearch here">
+        <div class="popup-blocked" id="popupBlocked">
+            <strong>Pop-ups were blocked. Open the links below:</strong>
+            <div id="fallbackLinks"></div>
+        </div>
     </main>
     <script>
         var searchInput = document.getElementById("searchInputId");
@@ -34,9 +49,31 @@
             if (event.keyCode === 13) {
                 event.preventDefault();
                 var searchQuery = encodeURIComponent(document.getElementById("searchInputId").value);
-                window.open("https://www.google.com/search?q=" + searchQuery + "&tbm=isch&hl=fr");
-                window.open("https://www.linguee.com/english-french/search?source=french&query=" + searchQuery);
-                window.open("https://fr.wiktionary.org/wiki/" + searchQuery);
+                var urls = [
+                    { name: "Google Images", url: "https://www.google.com/search?q=" + searchQuery + "&tbm=isch&hl=fr" },
+                    { name: "Linguee", url: "https://www.linguee.com/english-french/search?source=french&query=" + searchQuery },
+                    { name: "French Wiktionary", url: "https://fr.wiktionary.org/wiki/" + searchQuery }
+                ];
+                var blocked = [];
+                urls.forEach(function (entry) {
+                    var w = window.open(entry.url);
+                    if (!w || w.closed) blocked.push(entry);
+                });
+                if (blocked.length > 0) {
+                    var container = document.getElementById("fallbackLinks");
+                    container.innerHTML = "";
+                    blocked.forEach(function (entry) {
+                        var a = document.createElement("a");
+                        a.href = entry.url;
+                        a.target = "_blank";
+                        a.rel = "noopener";
+                        a.textContent = entry.name;
+                        container.appendChild(a);
+                    });
+                    document.getElementById("popupBlocked").style.display = "block";
+                } else {
+                    document.getElementById("popupBlocked").style.display = "none";
+                }
                 document.getElementById("searchInputId").value = "";
             }
         });
