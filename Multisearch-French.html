@@ -95,16 +95,26 @@
         .example-image {
             margin-top: 0.4em;
         }
-        .example-image img {
-            height: 150px;
-            border-radius: var(--rc);
-        }
         .example-image .generating {
             display: inline-block;
             padding: 0.3em 0.6em;
             font-size: 0.85em;
             opacity: 0.6;
         }
+        .image-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 0.3em;
+        }
+        .image-grid img {
+            height: 120px;
+            width: auto;
+            object-fit: cover;
+            border-radius: var(--rc);
+            cursor: pointer;
+        }
+        .image-grid img:hover { opacity: 0.8; }
         #results { display: none; }
         #settings {
             margin-top: 1em;
@@ -415,7 +425,7 @@
 
                     var html = "<h2>Examples</h2><ul class='example-list'>";
                     sentences.forEach(function (s, i) {
-                        html += '<li><div class="example-fr">' + escapeHtml(s.text) + '</div><div class="example-en" data-fr="' + escapeHtml(s.text) + '" id="exEn' + i + '">translating...</div><div class="example-actions"><button class="btn" onclick="playSentence(this, \'' + escapeHtml(s.text).replace(/'/g, "\\'") + '\')">&#9654; Listen</button> <button class="btn" onclick="downloadSentence(\'' + escapeHtml(s.text).replace(/'/g, "\\'") + '\')">&#11015; Download mp3</button> <button class="btn" onclick="generateImageForExample(' + i + ', this)">&#127912; Generate image</button></div><div class="example-image" id="exImg' + i + '"></div></li>';
+                        html += '<li><div class="example-fr">' + escapeHtml(s.text) + '</div><div class="example-en" data-fr="' + escapeHtml(s.text) + '" id="exEn' + i + '">translating...</div><div class="example-actions"><button class="btn" onclick="playSentence(this, \'' + escapeHtml(s.text).replace(/'/g, "\\'") + '\')">&#9654; Listen</button> <button class="btn" onclick="downloadSentence(\'' + escapeHtml(s.text).replace(/'/g, "\\'") + '\')">&#11015; Download mp3</button> <button class="btn" onclick="generateImageForExample(' + i + ', this)">&#127912; AI image</button></div><div class="example-image" id="exImg' + i + '"></div><div class="example-image" id="exAiImg' + i + '"></div></li>';
                     });
                     html += "</ul>";
                     section.innerHTML = html;
@@ -428,6 +438,7 @@
                                 var enDiv = document.getElementById("exEn" + i);
                                 if (d.translation && enDiv) {
                                     enDiv.textContent = d.translation;
+                                    fetchImagesForSentence(i, d.translation);
                                 }
                             })
                             .catch(function () {});
@@ -554,21 +565,73 @@
         }
 
 
+        var COMMONS_API = "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrlimit=3&prop=imageinfo&iiprop=url|mime&iiurlwidth=150&format=json&origin=*&gsrsearch=";
+        var STOP_WORDS = ["i","me","my","you","your","he","she","it","we","they","the","a","an","is","am","are","was","were","be","been","being","have","has","had","do","does","did","will","would","shall","should","can","could","may","might","must","to","of","in","for","on","with","at","by","from","as","into","about","but","not","or","and","if","then","so","than","too","very","just","that","this","these","those","there","here","up","out","no","all","some","any","each","every","also","its","his","her","their","our","s","t","don","re","ve","ll","d","m"];
+
+        function extractNouns(sentence) {
+            return sentence.toLowerCase().replace(/[^a-z\s]/g, "").split(/\s+/)
+                .filter(function (w) { return w.length > 2 && STOP_WORDS.indexOf(w) === -1; });
+        }
+
+        function fetchImagesForSentence(index, englishText) {
+            var container = document.getElementById("exImg" + index);
+            if (!container) return;
+            var nouns = extractNouns(englishText);
+            if (nouns.length === 0) return;
+            // Search for top 2 nouns
+            var searchWords = nouns.slice(0, 2);
+            container.innerHTML = '<span class="generating">Loading images...</span>';
+
+            Promise.all(searchWords.map(function (word) {
+                return fetch(COMMONS_API + encodeURIComponent(word))
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        var imgs = [];
+                        if (data.query && data.query.pages) {
+                            Object.keys(data.query.pages).forEach(function (k) {
+                                var p = data.query.pages[k];
+                                if (p.imageinfo && p.imageinfo[0] && p.imageinfo[0].thumburl) {
+                                    var info = p.imageinfo[0];
+                                    if (info.mime && info.mime.startsWith("image/")) {
+                                        imgs.push({ thumb: info.thumburl, full: info.url, title: p.title });
+                                    }
+                                }
+                            });
+                        }
+                        return imgs;
+                    })
+                    .catch(function () { return []; });
+            })).then(function (results) {
+                var allImgs = [];
+                results.forEach(function (r) { allImgs = allImgs.concat(r); });
+                if (allImgs.length === 0) {
+                    container.innerHTML = "";
+                    return;
+                }
+                var html = '<div class="image-grid">';
+                allImgs.forEach(function (img) {
+                    html += '<a href="' + img.full + '" target="_blank" rel="noopener"><img src="' + img.thumb + '" alt="' + escapeHtml(img.title) + '" loading="lazy"></a>';
+                });
+                html += '</div>';
+                container.innerHTML = html;
+            });
+        }
+
         function generateImageForExample(index, btn) {
             var enDiv = document.getElementById("exEn" + index);
-            var imgContainer = document.getElementById("exImg" + index);
+            var imgContainer = document.getElementById("exAiImg" + index);
             if (!enDiv || !imgContainer) return;
             var translation = enDiv.textContent;
             if (!translation || translation === "translating...") {
                 btn.textContent = "Wait for translation...";
-                setTimeout(function () { btn.textContent = "\uD83C\uDFA8 Generate image"; }, 2000);
+                setTimeout(function () { btn.textContent = "\uD83C\uDFA8 AI image"; }, 2000);
                 return;
             }
             btn.disabled = true;
             btn.textContent = "Generating...";
             imgContainer.innerHTML = '<span class="generating">Generating image...</span>';
             generateImage("simple illustration: " + translation, imgContainer.querySelector("span"), function () {
-                btn.textContent = "\uD83C\uDFA8 Generate image";
+                btn.textContent = "\uD83C\uDFA8 AI image";
                 btn.disabled = false;
             });
         }
