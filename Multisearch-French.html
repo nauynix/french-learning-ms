@@ -30,6 +30,28 @@
             font-size: 1.8em;
             font-weight: bold;
         }
+        .translation-options {
+            margin-top: 0.6em;
+        }
+        .translation-option {
+            display: inline-block;
+            cursor: pointer;
+            background: var(--c1);
+            color: var(--c5);
+            border: none;
+            border-radius: var(--rc);
+            padding: 0.3em 0.7em;
+            margin: 0.2em 0.3em 0.2em 0;
+            font-size: 1em;
+        }
+        .translation-option:hover { opacity: 0.8; }
+        .translation-option.selected {
+            outline: 3px solid var(--c4);
+        }
+        .translation-gloss {
+            font-size: 0.85em;
+            opacity: 0.8;
+        }
         .ipa {
             font-size: 1.3em;
             margin-right: 0.5em;
@@ -104,7 +126,10 @@
         var TATOEBA_API = "https://api.tatoeba.org/unstable/sentences?lang=fra&limit=20&sort=random&q=";
         var COMMONS_API = "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrlimit=8&prop=imageinfo&iiprop=url|mime&iiurlwidth=200&format=json&origin=*&gsrsearch=";
 
+        var currentEnglishWord = "";
+
         function searchWord(word) {
+            currentEnglishWord = word;
             document.getElementById("loading").style.display = "block";
             document.getElementById("results").style.display = "none";
             document.getElementById("translationSection").innerHTML = "";
@@ -112,29 +137,119 @@
             document.getElementById("examplesSection").innerHTML = "";
             document.getElementById("imagesSection").innerHTML = "";
 
-            // Step 1: Get French translation via Lingva
-            fetch(LINGVA_API + "en/fr/" + encodeURIComponent(word))
-                .then(function (r) { return r.json(); })
-                .then(function (data) { return data.translation || null; })
-                .catch(function () { return null; })
-                .then(function (frenchWord) {
-                    // Render translation
-                    var transHtml = "<h2>Translation</h2>";
-                    if (frenchWord) {
-                        transHtml += '<div class="translation-word">' + escapeHtml(word) + ' &rarr; ' + escapeHtml(frenchWord) + '</div>';
-                    } else {
-                        transHtml += '<div class="translation-word">' + escapeHtml(word) + ' &rarr; <em>no translation found</em></div>';
-                    }
-                    document.getElementById("translationSection").innerHTML = transHtml;
-                    document.getElementById("results").style.display = "block";
-                    document.getElementById("loading").style.display = "none";
+            // Fetch Lingva translation and Wiktionary translations in parallel
+            Promise.all([
+                fetch(LINGVA_API + "en/fr/" + encodeURIComponent(word))
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { return data.translation || null; })
+                    .catch(function () { return null; }),
+                fetchWiktionaryTranslations(word)
+            ]).then(function (results) {
+                var lingvaWord = results[0];
+                var wiktOptions = results[1]; // [{word, gloss}]
 
-                    // Step 2: Fetch examples, pronunciation, and images in parallel
-                    var pronWord = frenchWord ? frenchWord.toLowerCase().split(/[\s,]+/)[0] : word;
-                    fetchExamples(pronWord);
-                    fetchPronunciation(pronWord);
-                    fetchImages(word);
+                // Build unique translation options: Lingva first, then Wiktionary
+                var options = [];
+                var seen = {};
+                if (lingvaWord) {
+                    var lw = lingvaWord.toLowerCase();
+                    seen[lw] = true;
+                    options.push({ word: lingvaWord, gloss: "" });
+                }
+                wiktOptions.forEach(function (opt) {
+                    var key = opt.word.toLowerCase();
+                    if (!seen[key]) {
+                        seen[key] = true;
+                        options.push(opt);
+                    } else if (opt.gloss) {
+                        // Add gloss to existing entry if it didn't have one
+                        for (var i = 0; i < options.length; i++) {
+                            if (options[i].word.toLowerCase() === key && !options[i].gloss) {
+                                options[i].gloss = opt.gloss;
+                                break;
+                            }
+                        }
+                    }
                 });
+
+                renderTranslations(word, options);
+                document.getElementById("results").style.display = "block";
+                document.getElementById("loading").style.display = "none";
+
+                // Select the first option by default
+                if (options.length > 0) {
+                    selectTranslation(options[0].word);
+                } else {
+                    document.getElementById("translationSection").innerHTML = "<h2>Translation</h2><p>No translation found.</p>";
+                    fetchImages(word);
+                }
+            });
+        }
+
+        function fetchWiktionaryTranslations(word) {
+            return fetch(WIKT_API + encodeURIComponent(word))
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data.parse || !data.parse.text) return [];
+                    var doc = new DOMParser().parseFromString(data.parse.text["*"], "text/html");
+                    var tables = doc.querySelectorAll("[data-gloss]");
+                    var options = [];
+                    var seen = {};
+                    tables.forEach(function (t) {
+                        var gloss = t.getAttribute("data-gloss");
+                        var frSpans = t.querySelectorAll('span[lang="fr"]');
+                        frSpans.forEach(function (s) {
+                            var w = s.textContent.trim();
+                            if (w && w.length < 30) {
+                                var key = w.toLowerCase();
+                                if (!seen[key]) {
+                                    seen[key] = true;
+                                    options.push({ word: w, gloss: gloss });
+                                }
+                            }
+                        });
+                    });
+                    return options;
+                })
+                .catch(function () { return []; });
+        }
+
+        function renderTranslations(englishWord, options) {
+            var section = document.getElementById("translationSection");
+            var html = "<h2>Translation</h2>";
+            html += '<div class="translation-word" id="selectedTranslation">' + escapeHtml(englishWord) + ' &rarr; ' + escapeHtml(options[0] ? options[0].word : "?") + '</div>';
+            if (options.length > 1) {
+                html += '<div class="translation-options">';
+                options.forEach(function (opt) {
+                    html += '<button class="translation-option" data-word="' + escapeHtml(opt.word) + '" onclick="selectTranslation(\'' + escapeHtml(opt.word).replace(/'/g, "\\'") + '\')">';
+                    html += escapeHtml(opt.word);
+                    if (opt.gloss) html += ' <span class="translation-gloss">(' + escapeHtml(opt.gloss) + ')</span>';
+                    html += '</button>';
+                });
+                html += '</div>';
+            }
+            section.innerHTML = html;
+            // Mark first as selected
+            var firstBtn = section.querySelector('.translation-option');
+            if (firstBtn) firstBtn.classList.add('selected');
+        }
+
+        function selectTranslation(frenchWord) {
+            // Update selected button style
+            var buttons = document.querySelectorAll('.translation-option');
+            buttons.forEach(function (b) {
+                b.classList.toggle('selected', b.getAttribute('data-word') === frenchWord);
+            });
+
+            // Update the main translation display
+            var display = document.getElementById('selectedTranslation');
+            if (display) display.innerHTML = escapeHtml(currentEnglishWord) + ' &rarr; ' + escapeHtml(frenchWord);
+
+            // Re-fetch pronunciation and examples for the selected word
+            var pronWord = frenchWord.toLowerCase().split(/[\s,]+/)[0];
+            fetchPronunciation(pronWord);
+            fetchExamples(pronWord);
+            fetchImages(currentEnglishWord);
         }
 
         function fetchExamples(frenchWord) {
