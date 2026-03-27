@@ -419,24 +419,19 @@
 
                     var html = "<h2>Examples</h2><ul class='example-list'>";
                     sentences.forEach(function (s, i) {
-                        html += '<li><div class="example-fr">' + escapeHtml(s.text) + '</div><div class="example-en" data-fr="' + escapeHtml(s.text) + '">translating...</div><div class="example-actions"><button class="btn" onclick="playSentence(this, \'' + escapeHtml(s.text).replace(/'/g, "\\'") + '\')">&#9654; Listen</button> <button class="btn" onclick="downloadSentence(\'' + escapeHtml(s.text).replace(/'/g, "\\'") + '\')">&#11015; Download mp3</button></div><div class="example-image" id="exImg' + i + '"><span class="generating"></span></div></li>';
+                        html += '<li><div class="example-fr">' + escapeHtml(s.text) + '</div><div class="example-en" data-fr="' + escapeHtml(s.text) + '" id="exEn' + i + '">translating...</div><div class="example-actions"><button class="btn" onclick="playSentence(this, \'' + escapeHtml(s.text).replace(/'/g, "\\'") + '\')">&#9654; Listen</button> <button class="btn" onclick="downloadSentence(\'' + escapeHtml(s.text).replace(/'/g, "\\'") + '\')">&#11015; Download mp3</button> <button class="btn" onclick="generateImageForExample(' + i + ', this)">&#127912; Generate image</button></div><div class="example-image" id="exImg' + i + '"></div></li>';
                     });
                     html += "</ul>";
                     section.innerHTML = html;
 
-                    // Translate each French sentence to English via Lingva, then generate image
+                    // Translate each French sentence to English via Lingva
                     sentences.forEach(function (s, i) {
                         fetch(LINGVA_API + "fr/en/" + encodeURIComponent(s.text))
                             .then(function (r) { return r.json(); })
                             .then(function (d) {
-                                var enDivs = section.querySelectorAll(".example-en");
-                                if (d.translation && enDivs[i]) {
-                                    enDivs[i].textContent = d.translation;
-                                    // Generate image based on English translation
-                                    var imgContainer = document.getElementById("exImg" + i);
-                                    if (imgContainer) {
-                                        generateImage("simple illustration: " + d.translation, imgContainer.querySelector("span"));
-                                    }
+                                var enDiv = document.getElementById("exEn" + i);
+                                if (d.translation && enDiv) {
+                                    enDiv.textContent = d.translation;
                                 }
                             })
                             .catch(function () {});
@@ -563,10 +558,30 @@
         }
 
 
-        function generateImage(prompt, imgEl) {
+        function generateImageForExample(index, btn) {
+            var enDiv = document.getElementById("exEn" + index);
+            var imgContainer = document.getElementById("exImg" + index);
+            if (!enDiv || !imgContainer) return;
+            var translation = enDiv.textContent;
+            if (!translation || translation === "translating...") {
+                btn.textContent = "Wait for translation...";
+                setTimeout(function () { btn.textContent = "\uD83C\uDFA8 Generate image"; }, 2000);
+                return;
+            }
+            btn.disabled = true;
+            btn.textContent = "Generating...";
+            imgContainer.innerHTML = '<span class="generating">Generating image...</span>';
+            generateImage("simple illustration: " + translation, imgContainer.querySelector("span"), function () {
+                btn.textContent = "\uD83C\uDFA8 Generate image";
+                btn.disabled = false;
+            });
+        }
+
+        function generateImage(prompt, imgEl, onDone) {
             var token = localStorage.getItem("hfToken");
             if (!token) {
                 imgEl.parentElement.innerHTML = '<span class="generating">Set HF token in Settings for AI images</span>';
+                if (onDone) onDone();
                 return;
             }
             imgEl.parentElement.innerHTML = '<span class="generating">Generating image...</span>';
@@ -585,9 +600,11 @@
             .then(function (blob) {
                 var url = URL.createObjectURL(blob);
                 imgEl.parentElement.innerHTML = '<img src="' + url + '" alt="' + escapeHtml(prompt) + '">';
+                if (onDone) onDone();
             })
             .catch(function (e) {
                 imgEl.parentElement.innerHTML = '<span class="generating">Image failed: ' + escapeHtml(e.message) + '</span>';
+                if (onDone) onDone();
             });
         }
 
