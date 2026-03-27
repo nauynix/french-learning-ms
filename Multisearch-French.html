@@ -6,75 +6,302 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link href="basic.css" rel="stylesheet">
     <style type="text/css">
-        /* Page specific styles */
         .search-input {
             width: 25em;
             font-size: 1.4em;
             padding: 0.4em;
         }
-        .popup-blocked {
+        #loading {
             margin-top: 1em;
+            display: none;
+        }
+        .result-section {
+            margin-top: 1.2em;
             padding: 1em;
             background: var(--c2);
             border-radius: var(--rc);
-            display: none;
         }
-        .popup-blocked a {
-            display: block;
-            margin: 0.4em 0;
+        .result-section h2 {
+            margin-top: 0;
+            font-size: 1.2em;
+            font-weight: bold;
         }
+        .translation-word {
+            font-size: 1.8em;
+            font-weight: bold;
+        }
+        .ipa {
+            font-size: 1.3em;
+            margin-right: 0.5em;
+        }
+        .btn {
+            cursor: pointer;
+            background: var(--c1);
+            color: var(--c5);
+            border: none;
+            border-radius: var(--rc);
+            padding: 0.4em 0.8em;
+            margin-right: 0.4em;
+            font-size: 1em;
+        }
+        .btn:hover { opacity: 0.8; }
+        .example-list {
+            list-style: none;
+            padding: 0;
+        }
+        .example-list li {
+            margin: 0.6em 0;
+            padding: 0.5em;
+            border-left: 3px solid var(--c1);
+            padding-left: 0.8em;
+        }
+        .example-fr {
+            color: var(--c1);
+            font-weight: bold;
+        }
+        .example-en {
+            font-style: italic;
+            opacity: 0.8;
+        }
+        .image-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .image-grid img {
+            height: 150px;
+            width: auto;
+            object-fit: cover;
+            border-radius: var(--rc);
+            cursor: pointer;
+        }
+        .image-grid img:hover {
+            opacity: 0.8;
+        }
+        #results { display: none; }
     </style>
-    <title>Multisearch French for Language Learning</title>
+    <title>French Flashcard Builder</title>
 </head>
 
 <body>
     <main>
-        <h1>Multisearch French Words</h1>
-        <p>This site searches words in French to help an English speaker build flash cards by searching:</p>
-        <ul>
-            <li>Linguee: For translation and example</li>
-            <li>French Wiktionary: For word sounds</li>
-            <li>Google Images: Get images to choose to build the flash card</li>
-        </ul>
-        </article>
-        <input type="text" class="search-input" id="searchInputId" autofocus placeholder="Multisearch here">
-        <div class="popup-blocked" id="popupBlocked">
-            <strong>Pop-ups were blocked. Open the links below:</strong>
-            <div id="fallbackLinks"></div>
+        <h1>French Flashcard Builder</h1>
+        <p>Type an English word to get its French translation, pronunciation, example sentences, and images.</p>
+        <input type="text" class="search-input" id="searchInputId" autofocus placeholder="Type an English word...">
+        <div id="loading">Searching...</div>
+
+        <div id="results">
+            <div class="result-section" id="translationSection"></div>
+            <div class="result-section" id="pronunciationSection"></div>
+            <div class="result-section" id="examplesSection"></div>
+            <div class="result-section" id="imagesSection"></div>
         </div>
     </main>
+
     <script>
+        var WIKT_API = "https://en.wiktionary.org/w/api.php?action=parse&prop=text&format=json&origin=*&page=";
+        var LINGVA_API = "https://lingva.ml/api/v1/";
+        var TATOEBA_API = "https://api.tatoeba.org/unstable/sentences?lang=fra&limit=20&sort=random&q=";
+        var COMMONS_API = "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrlimit=8&prop=imageinfo&iiprop=url|mime&iiurlwidth=200&format=json&origin=*&gsrsearch=";
+
+        function searchWord(word) {
+            document.getElementById("loading").style.display = "block";
+            document.getElementById("results").style.display = "none";
+            document.getElementById("translationSection").innerHTML = "";
+            document.getElementById("pronunciationSection").innerHTML = "";
+            document.getElementById("examplesSection").innerHTML = "";
+            document.getElementById("imagesSection").innerHTML = "";
+
+            // Step 1: Get French translation via Lingva
+            fetch(LINGVA_API + "en/fr/" + encodeURIComponent(word))
+                .then(function (r) { return r.json(); })
+                .then(function (data) { return data.translation || null; })
+                .catch(function () { return null; })
+                .then(function (frenchWord) {
+                    // Render translation
+                    var transHtml = "<h2>Translation</h2>";
+                    if (frenchWord) {
+                        transHtml += '<div class="translation-word">' + escapeHtml(word) + ' &rarr; ' + escapeHtml(frenchWord) + '</div>';
+                    } else {
+                        transHtml += '<div class="translation-word">' + escapeHtml(word) + ' &rarr; <em>no translation found</em></div>';
+                    }
+                    document.getElementById("translationSection").innerHTML = transHtml;
+                    document.getElementById("results").style.display = "block";
+                    document.getElementById("loading").style.display = "none";
+
+                    // Step 2: Fetch examples, pronunciation, and images in parallel
+                    var pronWord = frenchWord ? frenchWord.toLowerCase().split(/[\s,]+/)[0] : word;
+                    fetchExamples(pronWord);
+                    fetchPronunciation(pronWord);
+                    fetchImages(word);
+                });
+        }
+
+        function fetchExamples(frenchWord) {
+            var section = document.getElementById("examplesSection");
+            section.innerHTML = "<h2>Examples</h2><p>Loading...</p>";
+
+            // Search Tatoeba for French sentences containing the word
+            fetch(TATOEBA_API + encodeURIComponent('"' + frenchWord + '"'))
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data.data) throw new Error("No data");
+                    // Filter for real sentences (5+ words, not too long)
+                    var sentences = data.data
+                        .filter(function (s) {
+                            var wc = s.text.split(/\s+/).length;
+                            return wc >= 4 && s.text.length < 150;
+                        })
+                        .slice(0, 5);
+
+                    if (sentences.length === 0) throw new Error("No sentences");
+
+                    var html = "<h2>Examples</h2><ul class='example-list'>";
+                    sentences.forEach(function (s) {
+                        html += '<li><div class="example-fr">' + escapeHtml(s.text) + '</div><div class="example-en" data-fr="' + escapeHtml(s.text) + '">translating...</div></li>';
+                    });
+                    html += "</ul>";
+                    section.innerHTML = html;
+
+                    // Translate each French sentence to English via Lingva
+                    sentences.forEach(function (s, i) {
+                        fetch(LINGVA_API + "fr/en/" + encodeURIComponent(s.text))
+                            .then(function (r) { return r.json(); })
+                            .then(function (d) {
+                                var enDivs = section.querySelectorAll(".example-en");
+                                if (d.translation && enDivs[i]) {
+                                    enDivs[i].textContent = d.translation;
+                                }
+                            })
+                            .catch(function () {});
+                    });
+                })
+                .catch(function () {
+                    section.innerHTML = "<h2>Examples</h2><p>No example sentences found.</p>";
+                });
+        }
+
+        function fetchPronunciation(frenchWord) {
+            var section = document.getElementById("pronunciationSection");
+            section.innerHTML = "<h2>Pronunciation</h2><p>Loading...</p>";
+
+            fetch(WIKT_API + encodeURIComponent(frenchWord))
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data.parse || !data.parse.text) throw new Error("No data");
+                    var doc = new DOMParser().parseFromString(data.parse.text["*"], "text/html");
+
+                    var frenchH2 = doc.querySelector("h2#French");
+                    if (!frenchH2) throw new Error("No French section");
+                    var frenchDiv = frenchH2.closest(".mw-heading2") || frenchH2.parentElement;
+
+                    var ipas = [];
+                    var audioSrc = null;
+                    var el = frenchDiv.nextElementSibling;
+                    while (el) {
+                        if (el.classList && el.classList.contains("mw-heading2")) break;
+                        el.querySelectorAll(".IPA").forEach(function (i) {
+                            var t = i.textContent.trim();
+                            if (t && ipas.indexOf(t) === -1) ipas.push(t);
+                        });
+                        if (!audioSrc) {
+                            var src = el.querySelector("audio source");
+                            if (src) audioSrc = src.getAttribute("src");
+                            if (!audioSrc) {
+                                var link = el.querySelector('a[href*=".ogg"], a[href*=".mp3"]');
+                                if (link) audioSrc = link.getAttribute("href");
+                            }
+                        }
+                        el = el.nextElementSibling;
+                    }
+
+                    var html = "<h2>Pronunciation</h2>";
+                    if (ipas.length > 0) {
+                        html += '<span class="ipa">' + escapeHtml(ipas[0]) + '</span>';
+                    }
+                    if (audioSrc) {
+                        if (audioSrc.startsWith("//")) audioSrc = "https:" + audioSrc;
+                        html += '<button class="btn" onclick="document.getElementById(\'pronAudio\').play()">&#9654; Play</button>';
+                        html += '<button class="btn" onclick="downloadAudio(\'' + audioSrc + '\', \'' + escapeHtml(frenchWord) + '\')">&#11015; Download</button>';
+                        html += '<audio id="pronAudio" src="' + audioSrc + '"></audio>';
+                    }
+                    if (ipas.length === 0 && !audioSrc) {
+                        html += "<p>No pronunciation data found.</p>";
+                    }
+                    html += '<br><a href="https://en.wiktionary.org/wiki/' + encodeURIComponent(frenchWord) + '#French" target="_blank" rel="noopener">Open Wiktionary</a>';
+                    section.innerHTML = html;
+
+                    // Auto-download the audio
+                    if (audioSrc) downloadAudio(audioSrc, frenchWord);
+                })
+                .catch(function () {
+                    section.innerHTML = "<h2>Pronunciation</h2><p>No pronunciation data found for this word.</p>";
+                });
+        }
+
+        function downloadAudio(url, word) {
+            fetch(url)
+                .then(function (r) { return r.blob(); })
+                .then(function (blob) {
+                    var ext = url.indexOf(".mp3") !== -1 ? ".mp3" : ".ogg";
+                    var a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = word + ext;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(a.href);
+                });
+        }
+
+        function fetchImages(word) {
+            var section = document.getElementById("imagesSection");
+            section.innerHTML = "<h2>Images</h2><p>Loading...</p>";
+
+            fetch(COMMONS_API + encodeURIComponent(word))
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    var html = "<h2>Images</h2>";
+                    if (!data.query || !data.query.pages) {
+                        html += "<p>No images found.</p>";
+                        section.innerHTML = html;
+                        return;
+                    }
+                    html += '<div class="image-grid">';
+                    var pages = data.query.pages;
+                    Object.keys(pages).forEach(function (k) {
+                        var p = pages[k];
+                        if (p.imageinfo && p.imageinfo[0] && p.imageinfo[0].thumburl) {
+                            var info = p.imageinfo[0];
+                            if (info.mime && info.mime.startsWith("image/")) {
+                                html += '<a href="' + info.url + '" target="_blank" rel="noopener">';
+                                html += '<img src="' + info.thumburl + '" alt="' + escapeHtml(p.title) + '" loading="lazy">';
+                                html += '</a>';
+                            }
+                        }
+                    });
+                    html += '</div>';
+                    section.innerHTML = html;
+                })
+                .catch(function () {
+                    section.innerHTML = "<h2>Images</h2><p>Failed to load images.</p>";
+                });
+        }
+
+        function escapeHtml(text) {
+            var div = document.createElement("div");
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Search on Enter
         var searchInput = document.getElementById("searchInputId");
         searchInput.addEventListener("keyup", function (event) {
             if (event.keyCode === 13) {
                 event.preventDefault();
-                var searchQuery = encodeURIComponent(document.getElementById("searchInputId").value);
-                var urls = [
-                    { name: "Google Images", url: "https://www.google.com/search?q=" + searchQuery + "&tbm=isch&hl=fr" },
-                    { name: "Linguee", url: "https://www.linguee.com/english-french/search?source=english&query=" + searchQuery },
-                    { name: "French Wiktionary", url: "https://fr.wiktionary.org/wiki/" + searchQuery }
-                ];
-                var blocked = [];
-                urls.forEach(function (entry) {
-                    var w = window.open(entry.url);
-                    if (!w || w.closed) blocked.push(entry);
-                });
-                if (blocked.length > 0) {
-                    var container = document.getElementById("fallbackLinks");
-                    container.innerHTML = "";
-                    blocked.forEach(function (entry) {
-                        var a = document.createElement("a");
-                        a.href = entry.url;
-                        a.target = "_blank";
-                        a.rel = "noopener";
-                        a.textContent = entry.name;
-                        container.appendChild(a);
-                    });
-                    document.getElementById("popupBlocked").style.display = "block";
-                } else {
-                    document.getElementById("popupBlocked").style.display = "none";
-                }
-                document.getElementById("searchInputId").value = "";
+                var word = searchInput.value.trim();
+                if (word) searchWord(word);
+                searchInput.value = "";
             }
         });
     </script>
