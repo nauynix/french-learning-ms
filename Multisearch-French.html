@@ -101,6 +101,28 @@
             opacity: 0.8;
         }
         #results { display: none; }
+        .lang-toggle {
+            display: inline-flex;
+            margin-bottom: 0.6em;
+        }
+        .lang-toggle button {
+            cursor: pointer;
+            background: var(--c2);
+            color: var(--c4);
+            border: none;
+            padding: 0.4em 1em;
+            font-size: 1em;
+        }
+        .lang-toggle button:first-child {
+            border-radius: var(--rc) 0 0 var(--rc);
+        }
+        .lang-toggle button:last-child {
+            border-radius: 0 var(--rc) var(--rc) 0;
+        }
+        .lang-toggle button.active {
+            background: var(--c1);
+            color: var(--c5);
+        }
     </style>
     <title>French Flashcard Builder</title>
 </head>
@@ -109,6 +131,11 @@
     <main>
         <h1>French Flashcard Builder</h1>
         <p>Type an English word to get its French translation, pronunciation, example sentences, and images.</p>
+        <div class="lang-toggle">
+            <button id="langEn" class="active" onclick="setLang('en')">English</button>
+            <button id="langFr" onclick="setLang('fr')">French</button>
+        </div>
+        <br>
         <input type="text" class="search-input" id="searchInputId" autofocus placeholder="Type an English word...">
         <div id="loading">Searching...</div>
 
@@ -127,6 +154,44 @@
         var COMMONS_API = "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrlimit=8&prop=imageinfo&iiprop=url|mime&iiurlwidth=200&format=json&origin=*&gsrsearch=";
 
         var currentEnglishWord = "";
+        var inputLang = "en";
+
+        function setLang(lang) {
+            inputLang = lang;
+            document.getElementById("langEn").classList.toggle("active", lang === "en");
+            document.getElementById("langFr").classList.toggle("active", lang === "fr");
+            document.getElementById("searchInputId").placeholder = lang === "en" ? "Type an English word..." : "Type a French word...";
+        }
+
+        function searchFrenchWord(frenchWord) {
+            currentEnglishWord = frenchWord;
+            document.getElementById("loading").style.display = "block";
+            document.getElementById("results").style.display = "none";
+            document.getElementById("translationSection").innerHTML = "";
+            document.getElementById("pronunciationSection").innerHTML = "";
+            document.getElementById("examplesSection").innerHTML = "";
+            document.getElementById("imagesSection").innerHTML = "";
+
+            // Get English translation via Lingva (reverse)
+            fetch(LINGVA_API + "fr/en/" + encodeURIComponent(frenchWord))
+                .then(function (r) { return r.json(); })
+                .then(function (data) { return data.translation || null; })
+                .catch(function () { return null; })
+                .then(function (englishWord) {
+                    var transHtml = "<h2>Translation</h2>";
+                    transHtml += '<div class="translation-word">' + escapeHtml(frenchWord);
+                    if (englishWord) transHtml += ' &rarr; ' + escapeHtml(englishWord);
+                    transHtml += '</div>';
+                    document.getElementById("translationSection").innerHTML = transHtml;
+                    document.getElementById("results").style.display = "block";
+                    document.getElementById("loading").style.display = "none";
+
+                    var pronWord = frenchWord.toLowerCase().split(/[\s,]+/)[0];
+                    fetchPronunciation(pronWord);
+                    fetchExamples(pronWord);
+                    fetchImages(englishWord || frenchWord);
+                });
+        }
 
         function searchWord(word) {
             currentEnglishWord = word;
@@ -421,7 +486,10 @@
             if (event.keyCode === 13) {
                 event.preventDefault();
                 var word = searchInput.value.trim();
-                if (word) searchWord(word);
+                if (word) {
+                    if (inputLang === "fr") searchFrenchWord(word);
+                    else searchWord(word);
+                }
                 searchInput.value = "";
             }
         });
