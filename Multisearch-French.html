@@ -205,11 +205,13 @@
                             if (t && ipas.indexOf(t) === -1) ipas.push(t);
                         });
                         if (!audioSrc) {
-                            var src = el.querySelector("audio source");
-                            if (src) audioSrc = src.getAttribute("src");
-                            if (!audioSrc) {
-                                var link = el.querySelector('a[href*=".ogg"], a[href*=".mp3"]');
-                                if (link) audioSrc = link.getAttribute("href");
+                            // Prefer mp3 over ogg (iOS doesn't support ogg)
+                            var mp3Src = el.querySelector('audio source[type="audio/mpeg"], a[href*=".mp3"]');
+                            if (mp3Src) {
+                                audioSrc = mp3Src.getAttribute("src") || mp3Src.getAttribute("href");
+                            } else {
+                                var anySrc = el.querySelector("audio source, a[href*='.ogg']");
+                                if (anySrc) audioSrc = anySrc.getAttribute("src") || anySrc.getAttribute("href");
                             }
                         }
                         el = el.nextElementSibling;
@@ -221,6 +223,10 @@
                     }
                     if (audioSrc) {
                         if (audioSrc.startsWith("//")) audioSrc = "https:" + audioSrc;
+                        // Convert ogg URLs to mp3 (Wikimedia always has transcoded mp3 versions)
+                        if (audioSrc.match(/\/commons\/[0-9a-f]\/[0-9a-f]{2}\/.*\.ogg$/)) {
+                            audioSrc = audioSrc.replace(/\/commons\//, "/commons/transcoded/") + "/" + audioSrc.split("/").pop() + ".mp3";
+                        }
                         html += '<button class="btn" onclick="document.getElementById(\'pronAudio\').play()">&#9654; Play</button>';
                         html += '<button class="btn" onclick="downloadAudio(\'' + audioSrc + '\', \'' + escapeHtml(frenchWord) + '\')">&#11015; Download</button>';
                         html += '<audio id="pronAudio" src="' + audioSrc + '"></audio>';
@@ -243,7 +249,7 @@
             fetch(url)
                 .then(function (r) { return r.blob(); })
                 .then(function (blob) {
-                    var ext = url.indexOf(".mp3") !== -1 ? ".mp3" : ".ogg";
+                    var ext = ".mp3";
                     var a = document.createElement("a");
                     a.href = URL.createObjectURL(blob);
                     a.download = word + ext;
