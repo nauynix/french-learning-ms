@@ -167,7 +167,50 @@
             inputLang = lang;
             document.getElementById("langEn").classList.toggle("active", lang === "en");
             document.getElementById("langFr").classList.toggle("active", lang === "fr");
-            document.getElementById("searchInputId").placeholder = lang === "en" ? "Type an English word..." : "Type a French word...";
+            document.getElementById("searchInputId").placeholder = lang === "en" ? "Type an English word..." : "Type a French word or sentence...";
+        }
+
+        function searchFrenchSentence(sentence) {
+            document.getElementById("loading").style.display = "block";
+            document.getElementById("results").style.display = "none";
+            document.getElementById("translationSection").innerHTML = "";
+            document.getElementById("pronunciationSection").innerHTML = "";
+            document.getElementById("examplesSection").innerHTML = "";
+            document.getElementById("imagesSection").innerHTML = "";
+
+            // Translate to English and generate audio in parallel
+            Promise.all([
+                fetch(LINGVA_API + "fr/en/" + encodeURIComponent(sentence))
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { return data.translation || null; })
+                    .catch(function () { return null; }),
+                fetchLingvaAudio(sentence)
+                    .then(function (blob) { return URL.createObjectURL(blob); })
+                    .catch(function () { return null; })
+            ]).then(function (results) {
+                var englishText = results[0];
+                var audioUrl = results[1];
+
+                var transHtml = "<h2>Sentence</h2>";
+                transHtml += '<div class="example-fr" style="font-size:1.4em">' + escapeHtml(sentence) + '</div>';
+                if (englishText) transHtml += '<div class="example-en" style="font-size:1.1em">' + escapeHtml(englishText) + '</div>';
+                document.getElementById("translationSection").innerHTML = transHtml;
+
+                var pronHtml = "<h2>Pronunciation</h2>";
+                if (audioUrl) {
+                    pronHtml += '<button class="btn" onclick="document.getElementById(\'sentenceAudio\').play()">&#9654; Listen</button>';
+                    pronHtml += '<button class="btn" onclick="downloadSentence(\'' + escapeHtml(sentence).replace(/'/g, "\\'") + '\')">&#11015; Download mp3</button>';
+                    pronHtml += '<audio id="sentenceAudio" src="' + audioUrl + '"></audio>';
+                } else {
+                    pronHtml += "<p>Audio generation failed.</p>";
+                }
+                document.getElementById("pronunciationSection").innerHTML = pronHtml;
+
+                document.getElementById("examplesSection").innerHTML = "";
+                document.getElementById("imagesSection").innerHTML = "";
+                document.getElementById("results").style.display = "block";
+                document.getElementById("loading").style.display = "none";
+            });
         }
 
         function searchFrenchWord(frenchWord) {
@@ -530,8 +573,12 @@
                 event.preventDefault();
                 var word = searchInput.value.trim();
                 if (word) {
-                    if (inputLang === "fr") searchFrenchWord(word);
-                    else searchWord(word);
+                    if (inputLang === "fr") {
+                        if (word.indexOf(" ") !== -1) searchFrenchSentence(word);
+                        else searchFrenchWord(word);
+                    } else {
+                        searchWord(word);
+                    }
                 }
                 searchInput.value = "";
             }
