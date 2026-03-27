@@ -576,11 +576,12 @@
         function generateImage(prompt, imgEl, onDone) {
             var token = localStorage.getItem("hfToken");
             if (!token) {
-                imgEl.parentElement.innerHTML = '<span class="generating">Set HF token in Settings for AI images</span>';
+                if (imgEl.parentElement) imgEl.parentElement.innerHTML = '<span class="generating">Set HF token in Settings for AI images</span>';
                 if (onDone) onDone();
                 return;
             }
-            imgEl.parentElement.innerHTML = '<span class="generating">Generating image...</span>';
+            var container = imgEl.parentElement;
+            container.innerHTML = '<span class="generating">Generating image...</span>';
             fetch(HF_API, {
                 method: "POST",
                 headers: {
@@ -590,16 +591,16 @@
                 body: JSON.stringify({ inputs: prompt, parameters: { width: 512, height: 512 } })
             })
             .then(function (r) {
-                if (!r.ok) throw new Error("HF API error " + r.status);
+                if (!r.ok) return r.text().then(function (t) { throw new Error(t); });
                 return r.blob();
             })
             .then(function (blob) {
                 var url = URL.createObjectURL(blob);
-                imgEl.parentElement.innerHTML = '<img src="' + url + '" alt="' + escapeHtml(prompt) + '">';
+                container.innerHTML = '<img src="' + url + '" alt="' + escapeHtml(prompt) + '">';
                 if (onDone) onDone();
             })
             .catch(function (e) {
-                imgEl.parentElement.innerHTML = '<span class="generating">Image failed: ' + escapeHtml(e.message) + '</span>';
+                container.innerHTML = '<span class="generating">Image failed: ' + escapeHtml(e.message) + '</span>';
                 if (onDone) onDone();
             });
         }
