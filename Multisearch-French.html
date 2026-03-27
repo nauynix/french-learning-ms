@@ -170,7 +170,7 @@
             <label>Hugging Face Token (for AI images):<br>
                 <input type="password" id="hfToken" placeholder="hf_..." oninput="localStorage.setItem('hfToken', this.value)">
             </label>
-            <p style="font-size:0.85em;opacity:0.7">Free at <a href="https://huggingface.co/settings/tokens" target="_blank">huggingface.co/settings/tokens</a>. Stored in your browser only.</p>
+            <p style="font-size:0.85em;opacity:0.7">Free at <a href="https://huggingface.co/settings/tokens" target="_blank">huggingface.co/settings/tokens</a>. Create a fine-grained token with "Make calls to Inference Providers" enabled. Stored in your browser only.</p>
         </details>
 
         <div id="results">
@@ -187,7 +187,7 @@
 
         var currentEnglishWord = "";
         var inputLang = "en";
-        var HF_API = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0";
+        var HF_API = "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0";
 
         // Load saved HF token
         (function () {
