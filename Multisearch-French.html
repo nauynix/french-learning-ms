@@ -92,22 +92,34 @@
             font-size: 0.85em;
             padding: 0.2em 0.6em;
         }
-        .image-grid {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
+        .example-image {
+            margin-top: 0.4em;
         }
-        .image-grid img {
+        .example-image img {
             height: 150px;
-            width: auto;
-            object-fit: cover;
             border-radius: var(--rc);
-            cursor: pointer;
         }
-        .image-grid img:hover {
-            opacity: 0.8;
+        .example-image .generating {
+            display: inline-block;
+            padding: 0.3em 0.6em;
+            font-size: 0.85em;
+            opacity: 0.6;
         }
         #results { display: none; }
+        #settings {
+            margin-top: 1em;
+            padding: 0.8em;
+            background: var(--c2);
+            border-radius: var(--rc);
+        }
+        #settings summary {
+            cursor: pointer;
+            font-weight: bold;
+        }
+        #settings input {
+            width: 20em;
+            margin-top: 0.4em;
+        }
         .lang-toggle {
             display: inline-flex;
             margin-bottom: 0.6em;
@@ -146,11 +158,18 @@
         <input type="text" class="search-input" id="searchInputId" autofocus placeholder="Type an English word...">
         <div id="loading">Searching...</div>
 
+        <details id="settings">
+            <summary>Settings</summary>
+            <label>Hugging Face Token (for AI images):<br>
+                <input type="password" id="hfToken" placeholder="hf_..." oninput="localStorage.setItem('hfToken', this.value)">
+            </label>
+            <p style="font-size:0.85em;opacity:0.7">Free at <a href="https://huggingface.co/settings/tokens" target="_blank">huggingface.co/settings/tokens</a>. Stored in your browser only.</p>
+        </details>
+
         <div id="results">
             <div class="result-section" id="translationSection"></div>
             <div class="result-section" id="pronunciationSection"></div>
             <div class="result-section" id="examplesSection"></div>
-            <div class="result-section" id="imagesSection"></div>
         </div>
     </main>
 
@@ -158,10 +177,16 @@
         var WIKT_API = "https://en.wiktionary.org/w/api.php?action=parse&prop=text&format=json&origin=*&page=";
         var LINGVA_API = "https://lingva.ml/api/v1/";
         var TATOEBA_API = "https://api.tatoeba.org/unstable/sentences?lang=fra&limit=20&sort=random&q=";
-        var COMMONS_API = "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrlimit=8&prop=imageinfo&iiprop=url|mime&iiurlwidth=200&format=json&origin=*&gsrsearch=";
 
         var currentEnglishWord = "";
         var inputLang = "en";
+        var HF_API = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0";
+
+        // Load saved HF token
+        (function () {
+            var saved = localStorage.getItem("hfToken");
+            if (saved) document.getElementById("hfToken").value = saved;
+        })();
 
         function setLang(lang) {
             inputLang = lang;
@@ -239,7 +264,7 @@
                     var pronWord = frenchWord.toLowerCase().split(/[\s,]+/)[0];
                     fetchPronunciation(pronWord);
                     fetchExamples(pronWord);
-                    fetchImages(englishWord || frenchWord);
+                    // Images generated per example sentence
                 });
         }
 
@@ -296,7 +321,6 @@
                     selectTranslation(options[0].word);
                 } else {
                     document.getElementById("translationSection").innerHTML = "<h2>Translation</h2><p>No translation found.</p>";
-                    fetchImages(word);
                 }
             });
         }
@@ -364,7 +388,6 @@
             var pronWord = frenchWord.toLowerCase().split(/[\s,]+/)[0];
             fetchPronunciation(pronWord);
             fetchExamples(pronWord);
-            fetchImages(currentEnglishWord);
         }
 
         function fetchExamples(frenchWord) {
@@ -387,13 +410,13 @@
                     if (sentences.length === 0) throw new Error("No sentences");
 
                     var html = "<h2>Examples</h2><ul class='example-list'>";
-                    sentences.forEach(function (s) {
-                        html += '<li><div class="example-fr">' + escapeHtml(s.text) + '</div><div class="example-en" data-fr="' + escapeHtml(s.text) + '">translating...</div><div class="example-actions"><button class="btn" onclick="playSentence(this, \'' + escapeHtml(s.text).replace(/'/g, "\\'") + '\')">&#9654; Listen</button> <button class="btn" onclick="downloadSentence(\'' + escapeHtml(s.text).replace(/'/g, "\\'") + '\')">&#11015; Download mp3</button></div></li>';
+                    sentences.forEach(function (s, i) {
+                        html += '<li><div class="example-fr">' + escapeHtml(s.text) + '</div><div class="example-en" data-fr="' + escapeHtml(s.text) + '">translating...</div><div class="example-actions"><button class="btn" onclick="playSentence(this, \'' + escapeHtml(s.text).replace(/'/g, "\\'") + '\')">&#9654; Listen</button> <button class="btn" onclick="downloadSentence(\'' + escapeHtml(s.text).replace(/'/g, "\\'") + '\')">&#11015; Download mp3</button></div><div class="example-image" id="exImg' + i + '"><span class="generating"></span></div></li>';
                     });
                     html += "</ul>";
                     section.innerHTML = html;
 
-                    // Translate each French sentence to English via Lingva
+                    // Translate each French sentence to English via Lingva, then generate image
                     sentences.forEach(function (s, i) {
                         fetch(LINGVA_API + "fr/en/" + encodeURIComponent(s.text))
                             .then(function (r) { return r.json(); })
@@ -401,6 +424,11 @@
                                 var enDivs = section.querySelectorAll(".example-en");
                                 if (d.translation && enDivs[i]) {
                                     enDivs[i].textContent = d.translation;
+                                    // Generate image based on English translation
+                                    var imgContainer = document.getElementById("exImg" + i);
+                                    if (imgContainer) {
+                                        generateImage("simple illustration: " + d.translation, imgContainer.querySelector("span"));
+                                    }
                                 }
                             })
                             .catch(function () {});
@@ -526,38 +554,33 @@
                 });
         }
 
-        function fetchImages(word) {
-            var section = document.getElementById("imagesSection");
-            section.innerHTML = "<h2>Images</h2><p>Loading...</p>";
 
-            fetch(COMMONS_API + encodeURIComponent(word))
-                .then(function (r) { return r.json(); })
-                .then(function (data) {
-                    var html = "<h2>Images</h2>";
-                    if (!data.query || !data.query.pages) {
-                        html += "<p>No images found.</p>";
-                        section.innerHTML = html;
-                        return;
-                    }
-                    html += '<div class="image-grid">';
-                    var pages = data.query.pages;
-                    Object.keys(pages).forEach(function (k) {
-                        var p = pages[k];
-                        if (p.imageinfo && p.imageinfo[0] && p.imageinfo[0].thumburl) {
-                            var info = p.imageinfo[0];
-                            if (info.mime && info.mime.startsWith("image/")) {
-                                html += '<a href="' + info.url + '" target="_blank" rel="noopener">';
-                                html += '<img src="' + info.thumburl + '" alt="' + escapeHtml(p.title) + '" loading="lazy">';
-                                html += '</a>';
-                            }
-                        }
-                    });
-                    html += '</div>';
-                    section.innerHTML = html;
-                })
-                .catch(function () {
-                    section.innerHTML = "<h2>Images</h2><p>Failed to load images.</p>";
-                });
+        function generateImage(prompt, imgEl) {
+            var token = localStorage.getItem("hfToken");
+            if (!token) {
+                imgEl.parentElement.innerHTML = '<span class="generating">Set HF token in Settings for AI images</span>';
+                return;
+            }
+            imgEl.parentElement.innerHTML = '<span class="generating">Generating image...</span>';
+            fetch(HF_API, {
+                method: "POST",
+                headers: {
+                    "Authorization": "Bearer " + token,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ inputs: prompt, parameters: { width: 512, height: 512 } })
+            })
+            .then(function (r) {
+                if (!r.ok) throw new Error("HF API error " + r.status);
+                return r.blob();
+            })
+            .then(function (blob) {
+                var url = URL.createObjectURL(blob);
+                imgEl.parentElement.innerHTML = '<img src="' + url + '" alt="' + escapeHtml(prompt) + '">';
+            })
+            .catch(function (e) {
+                imgEl.parentElement.innerHTML = '<span class="generating">Image failed: ' + escapeHtml(e.message) + '</span>';
+            });
         }
 
         function escapeHtml(text) {
