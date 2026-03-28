@@ -398,13 +398,12 @@
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     if (!data.data) throw new Error("No data");
-                    // Filter for simple, short sentences (4-10 words)
+                    // Filter for memorable sentences (6-14 words, not too short or long)
                     var sentences = data.data
                         .filter(function (s) {
                             var wc = s.text.split(/\s+/).length;
-                            return wc >= 4 && wc <= 10 && s.text.length < 80;
+                            return wc >= 6 && wc <= 14 && s.text.length < 120;
                         })
-                        .sort(function (a, b) { return a.text.length - b.text.length; })
                         .slice(0, 5);
 
                     if (sentences.length === 0) throw new Error("No sentences");
